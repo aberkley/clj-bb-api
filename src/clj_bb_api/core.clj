@@ -1,5 +1,5 @@
 (ns clj-bb-api.core
-  (:import [com.bloomberglp.blpapi Session SessionOptions CorrelationID Service Request Event Event$EventType MessageIterator Message Element Datetime]
+    (:import [com.bloomberglp.blpapi Session SessionOptions CorrelationID Service Request Event Event$EventType MessageIterator Message Element Datetime]
            [java.net.])
   (:require [clojure.reflect :as r]
             [clj-time.format :as f]
@@ -8,30 +8,12 @@
             [clj-time.coerce :as ce])
   (:use [clojure.pprint]))
 
+(defn service
+  [{:keys [service-name java-object] :as session}]
+  (.getService java-object service-name))
+
 (def config {:price-field "LAST_PRICE"
              :periodicity "DAILY"})
-
-(defn- session-options
-  [host port]
-  (let [o (SessionOptions.)]
-    (.setServerHost (SessionOptions.) host)
-    (.setServerPort o port)))
-
-(defn- session
-  [session-options-]
-  (let [s (Session. session-options-)]
-    (cond
-     (not (.start s)) nil
-     (not (.openService s "//blp/refdata")) nil
-     :else s)))
-
-(defn- correlation-id
-  [id]
-  (CorrelationID. id))
-
-(defn- service
-  [session- service-name]
-  (.getService session- service-name))
 
 (defn- append-element
   [request- field value]
@@ -40,9 +22,9 @@
   request-)
 
 (defn- set-element
-  [request- field value]
-  (.set request- field value)
-  request-)
+  [request field value]
+  (.set request field value)
+  request)
 
 (defn- append-elements
   [request- name values]
@@ -50,7 +32,7 @@
 
 (defn- append-override
   [request- field value]
-  (let [override (.getElement request-"overrides")
+  (let [override (.getElement request- "overrides")
         element (.appendElement override)]
     (.setElement element "fieldId" field)
     (.setElement element "value" value)
@@ -75,8 +57,8 @@
       (append-elements "securities" securities)))
 
 (defn- intraday-bar-request
-  [service- start end security interval]
-  (-> service-
+  [service start end security interval]
+  (-> service
       (.createRequest "IntradayBarRequest")
       (set-element "startDateTime" start)
       (set-element "endDateTime" end)
@@ -131,7 +113,8 @@
 
 (defn- select-historical-data
   [message]
-  (let [security-data (-> message .asElement (.getElement "securityData"))
+  ;; AB: made a change here by removing .asElement from first call, but this might be the emulator API not working properly!
+  (let [security-data (-> message (.getElement "securityData"))
         security      (-> security-data (.getElementAsString "security"))
         field-data    (-> security-data (.getElement "fieldData"))]
     (for [i (range (.numValues field-data))]
@@ -152,17 +135,6 @@
         {"security" security
          "time" (f/unparse (f/formatter "yyyy-MM-dd hh:mm:ss") (parse-bb-datetime (.getElementAsDatetime d "time")))
          "close"     (.getElementAsFloat64 d "close")}))))
-
-(defn- initialise-api
-  [name]
-  (let [id       (correlation-id 2)
-        session- (-> (session-options "localhost" 8194)
-                     session)
-        service- (-> session-
-                     (service name))]
-    {:service service-
-     :session session-
-     :id      id}))
 
 (defn- select-field
   [field selector field-data]
@@ -203,31 +175,33 @@
             (into {})))))
 
 (defn get-reference-data
-  ([fields selectors securities]
+  ([{:keys [api] :as session} fields selectors securities]
      {:pre (= (count fields) (count selectors))}
-     (let [api (initialise-api "//blp/refdata")
-           request- (reference-data-request (:service api) fields securities)]
-       (->> (get-synchronous-events (:session api) request- (:id api))
+     (let [{:keys [new-correlation-id]} api
+           request- (reference-data-request (service api) fields securities)]
+       (->> (get-synchronous-events (session api) request- (new-correlation-id 4))
             select-responses
             (map select-messages)
             flatten
             (map (partial select-reference-data fields selectors))
             flatten)))
-  ([fields securities]
+  ([api fields securities]
      (let [selectors (repeat (count fields) #(.getValueAsString %))]
-      (get-reference-data fields selectors securities))))
+      (get-reference-data api fields selectors securities))))
 
 (defn get-bulk-data
-  [fields sub-fields securities]
+  [session fields sub-fields securities]
   {:pre (= (count fields) (count sub-fields))}
   (let [selectors (map bulk-selector sub-fields)]
-    (get-reference-data fields selectors securities)))
+    (get-reference-data session fields selectors securities)))
+
+;;TODO refactor get-historical-data and get-intraday-bars as they share a lot of common structure
 
 (defn get-historical-data
-  [start end securities]
-  (let [api (initialise-api "//blp/refdata")
-        request- (historical-data-request (:service api) start end securities)]
-    (->> (get-synchronous-events (:session api) request- (:id api))
+  [{:keys [api java-object] :as session} start end securities]
+  (let [{:keys [new-correlation-id]} api
+        request (historical-data-request (service session) start end securities)]
+    (->> (get-synchronous-events java-object request (new-correlation-id 3))
          select-responses
          (map select-messages)
          flatten
@@ -235,11 +209,11 @@
          flatten)))
 
 (defn get-intraday-bars
-  [start end security interval]
+  [{:keys [java-object api] :as session} start end security interval]
   {:pre (string? security)}
-  (let [api (initialise-api "//blp/refdata")
-        request- (intraday-bar-request (:service api) start end security interval)]
-    (->> (get-synchronous-events (:session api) request- (:id api))
+  (let [{:keys [new-correlation-id]} api
+        request (intraday-bar-request (service session) start end security interval)]
+    (->> (get-synchronous-events session request (new-correlation-id 2))
          select-responses
          (map select-messages)
          flatten
@@ -247,8 +221,8 @@
          flatten)))
 
 (defn get-historical-data-by-security
-  [start end securities]
+  [session start end securities]
   (->> securities
-       (map (fn [s] (try (get-historical-data start end [s])
+       (map (fn [s] (try (get-historical-data session start end [s])
                         (catch Exception e (throw (Exception. (str s ": " e)))))))
        flatten))
