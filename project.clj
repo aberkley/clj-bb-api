@@ -5,9 +5,8 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [clj-time "0.6.0"]
-                 [com.stuartsierra/component "0.2.2"]
-                 [org.clojure/java.classpath "0.2.2"]
-                 [sra-london/clj-bb-facade "1.1.6-SNAPSHOT"]]
+                 [com.stuartsierra/component "0.2.2"]]
+  :profiles {:dev {:dependencies [[com.bloomberglp/blpapi-emulator "1.1.4"]]}}
   :mirrors {#".+" {:name "nexus", :url "http://ec2-54-186-140-249.us-west-2.compute.amazonaws.com:8081/nexus/content/groups/public/"}}
   :repositories [["releases" {:url "http://ec2-54-186-140-249.us-west-2.compute.amazonaws.com:8081/nexus/content/repositories/releases/"
                               :username :env
