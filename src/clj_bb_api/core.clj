@@ -1,6 +1,4 @@
 (ns clj-bb-api.core
-    (:import [com.bloomberglp.blpapi Session SessionOptions CorrelationID Service Request Event Event$EventType MessageIterator Message Element Datetime]
-           [java.net.])
   (:require [clojure.reflect :as r]
             [clj-time.format :as f]
             [clj-time.core :as t]
