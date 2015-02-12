@@ -1,5 +1,5 @@
 (ns clj-bb-api.core-test
-  (:import [com.bloomberglp.blpapi Session SessionOptions CorrelationID])
+  (:import [sra_london.bloomberg_emulator Session SessionOptions CorrelationID Event$EventType])
   (:require [clojure.test :refer :all]
             [clojure.reflect :as r]
             [clj-bb-api.system :as sys]
@@ -8,7 +8,9 @@
 (def constructors
   {:new-session-options (fn [] (SessionOptions.))
    :new-session (fn [session-options] (Session. session-options))
-   :new-correlation-id (fn [id] (CorrelationID. id))})
+   :new-correlation-id (fn [id] (CorrelationID. id))
+   :event-types {:response Event$EventType/RESPONSE
+                 :partial-response Event$EventType/PARTIAL_RESPONSE}})
 
 (deftest historic-data
   (let [session (sys/new-session "//blp/refdata"

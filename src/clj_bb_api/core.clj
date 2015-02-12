@@ -65,20 +65,20 @@
       (set-element "security" security)))
 
 (defn- get-synchronous-events
-  [session- request- id]
+  [{:keys [event-types]} session- request- id]
   (let [b (atom true)
         events (atom [])]
     (.sendRequest session- request- id)
     (while @b
       (let [event (.nextEvent session-)]
         (swap! events conj event)
-        (reset! b (not (= (.intValue Event$EventType/RESPONSE)
+        (reset! b (not (= (.intValue (:response event-types))
                           (-> event .eventType .intValue))))))
     @events))
 
 (defn- select-responses
-  [events]
-  (let [responses #{Event$EventType/RESPONSE Event$EventType/PARTIAL_RESPONSE}]
+  [{:keys [event-types]} events]
+  (let [responses #{(:response event-types) (:partial-response event-types)}]
    (->> events
         (filter #(contains? responses (.eventType %))))))
 
@@ -173,12 +173,12 @@
             (into {})))))
 
 (defn get-reference-data
-  ([{:keys [api] :as session} fields selectors securities]
+  ([{:keys [api java-object] :as session} fields selectors securities]
      {:pre (= (count fields) (count selectors))}
      (let [{:keys [new-correlation-id]} api
            request- (reference-data-request (service api) fields securities)]
-       (->> (get-synchronous-events (session api) request- (new-correlation-id 4))
-            select-responses
+       (->> (get-synchronous-events api java-object request- (new-correlation-id 4))
+            (select-responses api)
             (map select-messages)
             flatten
             (map (partial select-reference-data fields selectors))
@@ -193,14 +193,14 @@
   (let [selectors (map bulk-selector sub-fields)]
     (get-reference-data session fields selectors securities)))
 
-;;TODO refactor get-historical-data and get-intraday-bars as they share a lot of common structure
+;;TODO refactor get-historical-data, get-intraday-bars and get-reference-data as they share a lot of common structure
 
 (defn get-historical-data
   [{:keys [api java-object] :as session} start end securities]
   (let [{:keys [new-correlation-id]} api
         request (historical-data-request (service session) start end securities)]
-    (->> (get-synchronous-events java-object request (new-correlation-id 3))
-         select-responses
+    (->> (get-synchronous-events api java-object request (new-correlation-id 3))
+         (select-responses api)
          (map select-messages)
          flatten
          (map select-historical-data)
@@ -211,8 +211,8 @@
   {:pre (string? security)}
   (let [{:keys [new-correlation-id]} api
         request (intraday-bar-request (service session) start end security interval)]
-    (->> (get-synchronous-events session request (new-correlation-id 2))
-         select-responses
+    (->> (get-synchronous-events api java-object request (new-correlation-id 2))
+         (select-responses api)
          (map select-messages)
          flatten
          (map (partial select-intraday-bars security))
